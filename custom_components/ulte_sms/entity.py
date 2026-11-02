@@ -1,7 +1,7 @@
 """Shared device info.
 
-The device carries the LTE device's MAC as a connection, so Home Assistant
-merges it with the device of the UniFi Network integration if that exists.
+The device carries the LTE device's MAC as a connection (Home Assistant keeps
+it as a separate device next to the one of the UniFi Network integration).
 Manufacturer and model use the same values as the UniFi integration.
 """
 from __future__ import annotations

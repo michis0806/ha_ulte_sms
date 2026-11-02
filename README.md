@@ -70,8 +70,9 @@ it.
 | RSSI, Modem temperature (diagnostic) | |
 | Cell ID, Phone number (diagnostic, disabled) | Phone number from the SIM (`AT+CNUM`) if the operator stored it |
 
-The device entry carries the device's MAC address, so Home Assistant shows
-these entities on the same device as the UniFi Network integration.
+The device carries the LTE device's MAC address as a connection. Since Home
+Assistant 2026 every integration has its own device, so it appears next to
+the device of the UniFi Network integration.
 
 ## Action `ulte_sms.send_sms`
 
