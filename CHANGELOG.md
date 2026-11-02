@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1 – 2026-11-03
+
+- Brand icon for HACS and the integration page.
+- README: why this is a separate integration (no core integration can send
+  or read SMS through a UniFi LTE device). No functional changes.
+
 ## 0.2.0 – 2026-11-02
 
 - New: detects whether dropbear's SSH host key is stored in the device's flash.
