@@ -12,6 +12,19 @@ SIM card of a **UniFi LTE Backup Pro (U-LTE-Pro)**, and shows the modem's
 > Not affiliated with Ubiquiti. Uses undocumented device internals — a
 > firmware update may break it.
 
+## Why a separate integration
+
+No Home Assistant core integration covers this. The core
+[UniFi Network](https://www.home-assistant.io/integrations/unifi/) integration
+talks to the UniFi Network application's API, which exposes the LTE device
+only as a network device (state, uptime, ports) — it offers no way to send or
+read SMS and no modem signal values. Those are only reachable on the device
+itself, over SSH and the modem's AT command port, which a controller-API
+integration does not (and should not) do. The core
+[SMS notifications via GSM-modem](https://www.home-assistant.io/integrations/sms/)
+integration needs the modem attached to the Home Assistant host via USB/serial;
+here the modem is built into a network device.
+
 ## How it works
 
 Home Assistant logs in to the device over **SSH** (the device SSH credentials
