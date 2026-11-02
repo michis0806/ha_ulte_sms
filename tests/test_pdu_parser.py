@@ -164,6 +164,9 @@ def test_parse_info():
     assert info.own_number == "+4915100000000"
     assert info.firmware == "IL.7.0.110"
     assert info.agent_version == 1
+    assert info.host_keys == {"dropbear_rsa_host_key": "ram_only"}
+    assert info.host_key_volatile
+    assert not parse_info(INFO_OUTPUT.replace("ram_only", "persistent")).host_key_volatile
 
 
 def test_parse_cmgl():

@@ -19,6 +19,7 @@ from .coordinator import (
     async_accept_host_key_change,
 )
 from .modem import UlteAuthError, UlteError, UlteHostKeyError, UlteModem
+from .repairs import async_update_host_key_issue
 from .services import async_setup_services
 
 PLATFORMS = [Platform.EVENT, Platform.NOTIFY, Platform.SENSOR]
@@ -64,6 +65,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: UlteConfigEntry) -> bool
         raise
 
     entry.runtime_data = UlteRuntime(modem, info, coordinator)
+    async_update_host_key_issue(hass, entry, info.host_keys)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 

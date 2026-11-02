@@ -1,17 +1,27 @@
 {
   "domain": "ulte_sms",
   "name": "UniFi LTE SMS",
-  "codeowners": ["@michis0806"],
+  "codeowners": [
+    "@michis0806"
+  ],
   "config_flow": true,
   "dhcp": [
-    {"hostname": "u-lte*"},
-    {"registered_devices": true}
+    {
+      "hostname": "u-lte*"
+    },
+    {
+      "registered_devices": true
+    }
   ],
   "documentation": "https://github.com/michis0806/ha_ulte_sms",
   "integration_type": "device",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/michis0806/ha_ulte_sms/issues",
-  "loggers": ["asyncssh"],
-  "requirements": ["asyncssh>=2.21.0"],
-  "version": "0.1.0"
+  "loggers": [
+    "asyncssh"
+  ],
+  "requirements": [
+    "asyncssh>=2.21.0"
+  ],
+  "version": "0.2.0"
 }

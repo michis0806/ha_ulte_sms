@@ -215,6 +215,21 @@
     "host_key_accepted": {
       "title": "Host key of {title} changed",
       "description": "The SSH host key of {host} changed at {time} and was accepted automatically (option enabled).\n\nOld: `{old}`\nNew: `{new}`\n\nThis is expected after a reboot or firmware update of the device. If the device did not restart, check your network. Dismiss this message once checked."
+    },
+    "host_key_not_persistent": {
+      "title": "Host key of {title} changes on reboot",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Store host key permanently",
+            "description": "The firmware of {title} keeps the SSH host key ({files}) only in RAM and creates a new one on every reboot. Home Assistant then has to re-authenticate (or, with the option enabled, accept the new key automatically).\n\nOn submit, Home Assistant copies the running host key to /etc/persistent on the device and lets the firmware save its configuration to flash (the same way the UniFi firmware saves its settings). The key is then loaded again on the next boot. Nothing else is changed. A factory reset removes it again."
+          }
+        },
+        "abort": {
+          "persist_failed": "The host key could not be stored: {error}",
+          "not_loaded": "The integration entry is not loaded."
+        }
+      }
     }
   }
 }

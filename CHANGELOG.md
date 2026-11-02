@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.0 – 2026-11-02
+
+- New: detects whether dropbear's SSH host key is stored in the device's flash.
+  Firmware 7.0.110 keeps the RSA host key only in RAM, so it changes on every
+  reboot. A fixable Repairs issue stores the running key in /etc/persistent
+  and saves the configuration through the firmware's own save routine
+  (`syswrapper.sh cfg_save_check`), then verifies the flash content.
+- Agent version 2 (host key status in `info`, new mode `persist_host_key`).
+
 ## 0.1.0 – 2026-11-02
 
 First release.

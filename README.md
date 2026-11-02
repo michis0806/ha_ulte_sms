@@ -50,13 +50,19 @@ Assistant updates the entry. The host key is still checked.
 
 ### Host key changes
 
-Firmware 7.0.110 keeps the RSA host key that dropbear uses only in RAM; it is
-likely regenerated on every reboot. By default the integration then stops and
-asks for re-authentication showing old and new fingerprint (strict checking).
-With the option **Accept changed host keys automatically** it trusts the new
-key, keeps working and creates a Repairs notice. Use that option only with key
-login — with a password, a device impersonating the LTE device would receive
-it.
+Firmware 7.0.110 starts dropbear with an RSA host key that exists only in RAM
+(it is missing from `/etc/persistent`), so the device presents a new key after
+every reboot. The integration detects this at startup and creates a **Repairs
+issue**. Fixing it copies the running key to `/etc/persistent` and lets the
+firmware write its configuration to flash (`syswrapper.sh cfg_save_check`,
+the routine the firmware uses itself); afterwards the flash content is read
+back and checked. A factory reset removes the key again.
+
+If the key changes anyway, the integration stops by default and asks for
+re-authentication showing old and new fingerprint (strict checking). With the
+option **Accept changed host keys automatically** it trusts the new key, keeps
+working and creates a Repairs notice. Use that option only with key login —
+with a password, a device impersonating the LTE device would receive it.
 
 ## Entities
 
@@ -150,8 +156,10 @@ Host-Key bestätigen. Eine feste IP ist nicht nötig, IP-Wechsel übernimmt
 Home Assistant über die DHCP-Erkennung.
 
 **Host-Key:** Die Firmware 7.0.110 hält den RSA-Host-Key nur im RAM; er
-ändert sich vermutlich bei jedem Neustart. Standardmäßig fordert die
-Integration dann eine erneute Bestätigung an. Mit der Option *Geänderte
+ändert sich bei jedem Neustart. Die Integration erkennt das und bietet unter
+Reparaturen an, den Schlüssel über die Speicherroutine der Firmware dauerhaft
+ins Flash zu schreiben. Ändert er sich trotzdem, fordert die Integration
+standardmäßig eine erneute Bestätigung an. Mit der Option *Geänderte
 Host-Keys automatisch übernehmen* arbeitet sie weiter und meldet den Wechsel
 unter Reparaturen – nur mit Schlüssel-Anmeldung verwenden.
 

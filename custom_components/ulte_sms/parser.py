@@ -29,6 +29,12 @@ class ModemInfo:
     mac: str | None = None
     firmware: str | None = None
     agent_version: int | None = None
+    # dropbear host key file -> persistent | not_in_flash | ram_only | missing
+    host_keys: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def host_key_volatile(self) -> bool:
+        return any(state in ("ram_only", "not_in_flash") for state in self.host_keys.values())
 
 
 @dataclass(slots=True)
@@ -111,9 +117,18 @@ def _response(lines: list[str] | None, prefix: str) -> str | None:
     return None
 
 
+def parse_host_keys(output: str) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for line in section(split_sections(output), "HOSTKEYS") or []:
+        name, _, state = line.partition(" ")
+        if name and state:
+            result[name] = state.strip()
+    return result
+
+
 def parse_info(output: str) -> ModemInfo:
     sections = split_sections(output)
-    info = ModemInfo(agent_version=agent_version(sections))
+    info = ModemInfo(agent_version=agent_version(sections), host_keys=parse_host_keys(output))
     for line in section(sections, "SYSTEM") or []:
         key, _, value = line.partition("=")
         value = value.strip() or None

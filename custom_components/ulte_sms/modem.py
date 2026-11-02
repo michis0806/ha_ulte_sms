@@ -15,6 +15,7 @@ from .parser import (
     ModemStatus,
     agent_errors,
     parse_cmgl,
+    parse_host_keys,
     parse_info,
     parse_send,
     parse_status,
@@ -228,6 +229,17 @@ class UlteModem:
         if not indices:
             return
         await self._run("delete", *(str(int(i)) for i in indices))
+
+    async def async_persist_host_key(self) -> dict[str, str]:
+        """Store dropbear's host key in the device's flash config.
+
+        Returns the host key states afterwards (see agent.sh).
+        """
+        output = await self._run("persist_host_key", timeout=120)
+        errors = agent_errors(split_sections(output))
+        if errors:
+            raise UlteModemError(errors[0][6:].strip())
+        return parse_host_keys(output)
 
     async def async_send(self, number: str, text: str) -> list[int]:
         """Send an SMS; returns the message references of all parts."""

@@ -82,6 +82,12 @@ class FakeModem:
     async def async_close(self):
         self.closed = True
 
+    async def async_persist_host_key(self):
+        self.persist_calls = getattr(self, "persist_calls", 0) + 1
+        return {"dropbear_rsa_host_key": self.persist_result}
+
+    persist_result = "persistent"
+
 
 @pytest.fixture
 def modem():
@@ -240,3 +246,44 @@ async def test_notify_entity_recipients(hass: HomeAssistant, modem: FakeModem) -
         {"entity_id": "notify.u_lte_pro_eu_sms", "message": "Strom weg", "title": "USV"},
         blocking=True)
     assert modem.sent == [("+491701234567", "USV\nStrom weg")]
+
+
+async def test_host_key_repair(
+    hass: HomeAssistant, modem: FakeModem, issue_registry: ir.IssueRegistry
+) -> None:
+    from custom_components.ulte_sms.repairs import async_create_fix_flow
+
+    entry = await _setup(hass)
+    issue_id = f"host_key_not_persistent_{entry.entry_id}"
+    issue = issue_registry.async_get_issue(DOMAIN, issue_id)
+    assert issue is not None and issue.is_fixable
+    assert issue.translation_placeholders["files"] == "dropbear_rsa_host_key"
+
+    modem.persist_result = "ram_only"
+    flow = await async_create_fix_flow(hass, issue_id, issue.data)
+    flow.hass = hass
+    result = await flow.async_step_init()
+    assert result["step_id"] == "confirm"
+    result = await flow.async_step_confirm({})
+    assert result["type"] == "abort" and result["reason"] == "persist_failed"
+    assert issue_registry.async_get_issue(DOMAIN, issue_id)
+
+    modem.persist_result = "persistent"
+    flow = await async_create_fix_flow(hass, issue_id, issue.data)
+    flow.hass = hass
+    await flow.async_step_init()
+    result = await flow.async_step_confirm({})
+    assert result["type"] == "create_entry"
+    assert modem.persist_calls == 2
+    assert issue_registry.async_get_issue(DOMAIN, issue_id) is None
+    assert entry.runtime_data.info.host_keys == {"dropbear_rsa_host_key": "persistent"}
+
+
+async def test_no_issue_when_persistent(
+    hass: HomeAssistant, modem: FakeModem, issue_registry: ir.IssueRegistry
+) -> None:
+    info = parse_info(INFO_OUTPUT.replace("ram_only", "persistent"))
+    with patch.object(FakeModem, "async_info", return_value=info):
+        entry = await _setup(hass)
+    assert issue_registry.async_get_issue(
+        DOMAIN, f"host_key_not_persistent_{entry.entry_id}") is None

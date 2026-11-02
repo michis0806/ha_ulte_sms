@@ -8,15 +8,74 @@
 #   poll                      status + all SMS on the SIM in PDU mode
 #   send <len>:<pduhex> ...   send PDUs (AT+CMGS), one argument per part
 #   delete <idx> ...          delete SMS by index (AT+CMGD)
+#   persist_host_key          store dropbear's host key(s) in /etc/persistent
+#                             and save to flash the way the firmware does
 #
 # Output: every AT command starts a section "### <command>", followed by the
 # modem's response lines without CR and empty lines.
-AGENT_VERSION=1
+AGENT_VERSION=2
 P=/dev/ttyUSB2
 MODE=$1
 [ $# -gt 0 ] && shift
 
 echo "### AGENT $AGENT_VERSION"
+
+# Host key files dropbear is started with (-r <file> in /etc/inittab).
+host_key_files() {
+    awk '/dropbear/ && !/^#/ { for (i = 1; i < NF; i++) if ($i == "-r") print $(i + 1) }' \
+        /etc/inittab 2>/dev/null
+}
+
+# "### HOSTKEYS" section: "<file name> <state>" per key.
+#   persistent   stored in the flash config, survives a reboot
+#   not_in_flash in /etc/persistent, but not (yet) written to flash
+#   ram_only     only in RAM, a new key is generated on the next boot
+#   missing      file does not exist
+host_keys() {
+    echo "### HOSTKEYS"
+    D=/tmp/ulte_sms_flash.$$
+    rm -rf $D; mkdir -p $D
+    flash=0
+    if command -v cfgmtd >/dev/null 2>&1 &&
+            cfgmtd -r -p $D -f $D/read.cfg >/dev/null 2>&1; then
+        flash=1
+    fi
+    for f in $(host_key_files); do
+        n=$(basename "$f")
+        if [ ! -f "$f" ]; then
+            echo "$n missing"
+        elif [ $flash = 1 ] && cmp -s "$f" "$D/persistent/$n"; then
+            echo "$n persistent"
+        elif cmp -s "$f" "/etc/persistent/$n"; then
+            [ $flash = 1 ] && echo "$n not_in_flash" || echo "$n persistent"
+        else
+            echo "$n ram_only"
+        fi
+    done
+    rm -rf $D
+}
+
+if [ "$MODE" = persist_host_key ]; then
+    for f in $(host_key_files); do
+        n=$(basename "$f")
+        [ -f "$f" ] || continue
+        if ! cmp -s "$f" "/etc/persistent/$n"; then
+            cp "$f" "/etc/persistent/$n.new" && chmod 600 "/etc/persistent/$n.new" &&
+                mv "/etc/persistent/$n.new" "/etc/persistent/$n" ||
+                { echo "ERROR: could not copy $n"; exit 1; }
+        fi
+    done
+    # Same as the firmware's config monitor: mark and save (locks, cfgmtd -w).
+    touch /var/run/need_cfg_save
+    if [ -x /usr/etc/syswrapper.sh ]; then
+        /usr/etc/syswrapper.sh cfg_save_check >/dev/null 2>&1
+    else
+        cfgmtd -w -p /etc /tmp/system.cfg >/dev/null 2>&1
+    fi
+    host_keys
+    exit 0
+fi
+
 [ -c $P ] || { echo "ERROR: AT port $P missing"; exit 3; }
 
 # Lock against parallel access to the AT port (stale after 30 s).
@@ -64,6 +123,7 @@ info)
     echo "### SYSTEM"
     grep -E '^board\.(name|shortname|hwaddr)=' /etc/board.info 2>/dev/null
     printf 'firmware=%s\n' "$(cat /etc/version 2>/dev/null)"
+    host_keys
     quiet ATE0
     at ATI
     at 'AT+CNUM'

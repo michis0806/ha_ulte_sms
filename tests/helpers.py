@@ -82,6 +82,8 @@ board.name=U-LTE-Pro-EU
 board.shortname=ULTEPEU
 board.hwaddr=78455839E484
 firmware=IL.7.0.110
+### HOSTKEYS
+dropbear_rsa_host_key ram_only
 ### ATI
 Manufacturer: Sierra Wireless, Incorporated
 Model: WP7607

@@ -215,6 +215,21 @@
     "host_key_accepted": {
       "title": "Host-Key von {title} geändert",
       "description": "Der SSH-Host-Key von {host} hat sich am {time} geändert und wurde automatisch übernommen (Option aktiv).\n\nAlt: `{old}`\nNeu: `{new}`\n\nNach einem Neustart oder Firmware-Update des Geräts ist das normal. Ist das Gerät nicht neu gestartet, das Netzwerk prüfen. Nach der Prüfung diese Meldung schließen."
+    },
+    "host_key_not_persistent": {
+      "title": "Host-Key von {title} wechselt beim Neustart",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Host-Key dauerhaft speichern",
+            "description": "Die Firmware von {title} hält den SSH-Host-Key ({files}) nur im Arbeitsspeicher und erzeugt bei jedem Neustart einen neuen. Home Assistant muss sich dann neu anmelden (oder übernimmt den neuen Schlüssel automatisch, wenn die Option an ist).\n\nBeim Absenden kopiert Home Assistant den laufenden Host-Key auf dem Gerät nach /etc/persistent und lässt die Firmware ihre Konfiguration ins Flash schreiben (so wie die UniFi-Firmware ihre Einstellungen speichert). Beim nächsten Start wird der Schlüssel dann wieder geladen. Sonst wird nichts geändert. Ein Werksreset entfernt ihn wieder."
+          }
+        },
+        "abort": {
+          "persist_failed": "Der Host-Key konnte nicht gespeichert werden: {error}",
+          "not_loaded": "Der Integrationseintrag ist nicht geladen."
+        }
+      }
     }
   }
 }
