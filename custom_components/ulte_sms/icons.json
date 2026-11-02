@@ -1,0 +1,22 @@
+{
+  "entity": {
+    "event": {
+      "incoming_sms": {"default": "mdi:message-arrow-left"}
+    },
+    "notify": {
+      "sms": {"default": "mdi:message-arrow-right"}
+    },
+    "sensor": {
+      "operator": {"default": "mdi:radio-tower"},
+      "network_type": {"default": "mdi:signal-4g"},
+      "band": {"default": "mdi:sine-wave"},
+      "registration": {"default": "mdi:sim"},
+      "sms_on_sim": {"default": "mdi:message-processing"},
+      "cell_id": {"default": "mdi:antenna"},
+      "phone_number": {"default": "mdi:phone"}
+    }
+  },
+  "services": {
+    "send_sms": {"service": "mdi:message-text"}
+  }
+}

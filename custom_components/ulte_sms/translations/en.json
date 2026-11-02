@@ -1,0 +1,220 @@
+{
+  "config": {
+    "flow_title": "{host}",
+    "step": {
+      "user": {
+        "title": "UniFi LTE device",
+        "description": "Home Assistant logs in to the device over SSH and talks to the LTE modem directly. Use the device SSH credentials from the UniFi Network app (Settings → System → Advanced → Device Authentication). Enter a password, a private key, or both.",
+        "data": {
+          "host": "Host",
+          "port": "SSH port",
+          "username": "Username",
+          "password": "Password",
+          "private_key": "Private key (OpenSSH/PEM)"
+        },
+        "data_description": {
+          "host": "IP address of the LTE device. A fixed IP is not required: Home Assistant follows IP changes via DHCP discovery.",
+          "private_key": "Optional. Paste the whole key including the BEGIN/END lines. Keys with a passphrase are not supported."
+        }
+      },
+      "host_key": {
+        "title": "Confirm host key",
+        "description": "{host} presented this {key_type} host key:\n\n`{fingerprint}`\n\nIf you want to check it: `ssh-keygen -lf /etc/dropbear/dropbear_rsa_host_key` on the device, or the fingerprint your SSH client shows. Home Assistant only connects to the device while it presents exactly this key."
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate",
+        "description": "The connection to {host} was rejected. Usually the host key changed after a firmware update or factory reset.\n\nStored key: `{old_fingerprint}`\nCurrent key: `{new_fingerprint}`\n\nSubmit to trust the current key. Leave password and key empty to keep the stored credentials.",
+        "data": {
+          "password": "Password",
+          "private_key": "Private key (OpenSSH/PEM)"
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure",
+        "description": "Leave password and key empty to keep the stored credentials.",
+        "data": {
+          "host": "Host",
+          "port": "SSH port",
+          "username": "Username",
+          "password": "Password",
+          "private_key": "Private key (OpenSSH/PEM)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot connect to the device via SSH.",
+      "invalid_auth": "Login rejected. Check username, password and key.",
+      "no_credentials": "Enter a password or a private key.",
+      "host_key_changed": "The host key changed during setup. Try again.",
+      "modem_error": "Logged in, but the LTE modem did not respond (AT port missing or busy). Is this a UniFi LTE device?",
+      "unknown": "Unexpected error, see the log."
+    },
+    "abort": {
+      "already_configured": "This device is already configured.",
+      "no_mac": "The device did not report a MAC address. Is this a UniFi LTE device?",
+      "reauth_successful": "Re-authentication successful.",
+      "reconfigure_successful": "Reconfiguration successful.",
+      "unique_id_mismatch": "This is a different device."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Options",
+        "data": {
+          "scan_interval": "Polling interval",
+          "delete_after_receive": "Delete received SMS from the SIM",
+          "default_recipients": "Default recipients",
+          "accept_host_key_change": "Accept changed host keys automatically"
+        },
+        "data_description": {
+          "scan_interval": "How often the SIM is checked for new SMS (signal values are updated with it).",
+          "delete_after_receive": "The SIM holds only about 20 messages. Without deleting, new SMS are rejected once it is full.",
+          "default_recipients": "Recipients of the notify entity (international format, e.g. +491701234567).",
+          "accept_host_key_change": "Some firmware versions create a new SSH host key on every reboot. If enabled, Home Assistant trusts the new key, keeps working and reports it under Repairs. Only enable this if you use key login: with a password, a device impersonating the LTE device on your network would receive the password."
+        }
+      }
+    },
+    "error": {
+      "invalid_number": "Invalid phone number."
+    }
+  },
+  "entity": {
+    "event": {
+      "incoming_sms": {
+        "name": "Incoming SMS",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "received": "Received"
+            }
+          },
+          "sender": {
+            "name": "Sender"
+          },
+          "text": {
+            "name": "Text"
+          },
+          "timestamp": {
+            "name": "Sent"
+          },
+          "parts": {
+            "name": "Parts"
+          },
+          "complete": {
+            "name": "Complete"
+          },
+          "receiver": {
+            "name": "Receiver"
+          }
+        }
+      }
+    },
+    "notify": {
+      "sms": {
+        "name": "SMS"
+      }
+    },
+    "sensor": {
+      "rsrp": {
+        "name": "Signal strength (RSRP)"
+      },
+      "rsrq": {
+        "name": "Signal quality (RSRQ)"
+      },
+      "sinr": {
+        "name": "SINR"
+      },
+      "rssi": {
+        "name": "RSSI"
+      },
+      "operator": {
+        "name": "Operator"
+      },
+      "network_type": {
+        "name": "Network type"
+      },
+      "band": {
+        "name": "Band"
+      },
+      "registration": {
+        "name": "Registration",
+        "state": {
+          "not_registered": "Not registered",
+          "home": "Home network",
+          "searching": "Searching",
+          "denied": "Denied",
+          "unknown": "Unknown",
+          "roaming": "Roaming"
+        }
+      },
+      "sms_on_sim": {
+        "name": "SMS on SIM"
+      },
+      "temperature": {
+        "name": "Modem temperature"
+      },
+      "cell_id": {
+        "name": "Cell ID"
+      },
+      "phone_number": {
+        "name": "Phone number"
+      }
+    }
+  },
+  "services": {
+    "send_sms": {
+      "name": "Send SMS",
+      "description": "Sends an SMS via the LTE modem. Long texts are split into up to 10 parts; texts with characters outside the GSM alphabet (e.g. emoji) are sent as Unicode with fewer characters per part.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Device",
+          "description": "Only needed if more than one LTE device is set up."
+        },
+        "recipients": {
+          "name": "Recipients",
+          "description": "Phone numbers, preferably in international format (+49…)."
+        },
+        "message": {
+          "name": "Message",
+          "description": "The text to send."
+        }
+      }
+    }
+  },
+  "exceptions": {
+    "entry_not_found": {
+      "message": "No UniFi LTE SMS entry with ID {entry_id}."
+    },
+    "entry_required": {
+      "message": "More than one UniFi LTE device is set up. Select one."
+    },
+    "no_entry": {
+      "message": "No UniFi LTE device is set up and loaded."
+    },
+    "entry_not_loaded": {
+      "message": "{title} is not loaded."
+    },
+    "invalid_number": {
+      "message": "Invalid phone number: {number}"
+    },
+    "empty_message": {
+      "message": "The message is empty."
+    },
+    "message_too_long": {
+      "message": "The message needs {parts} SMS parts, the maximum is 10."
+    },
+    "send_failed": {
+      "message": "Sending failed: {errors}"
+    },
+    "no_default_recipients": {
+      "message": "No default recipients set. Add them in the integration options or use the action ulte_sms.send_sms."
+    }
+  },
+  "issues": {
+    "host_key_accepted": {
+      "title": "Host key of {title} changed",
+      "description": "The SSH host key of {host} changed at {time} and was accepted automatically (option enabled).\n\nOld: `{old}`\nNew: `{new}`\n\nThis is expected after a reboot or firmware update of the device. If the device did not restart, check your network. Dismiss this message once checked."
+    }
+  }
+}

@@ -1,0 +1,220 @@
+{
+  "config": {
+    "flow_title": "{host}",
+    "step": {
+      "user": {
+        "title": "UniFi-LTE-Gerät",
+        "description": "Home Assistant meldet sich per SSH am Gerät an und spricht direkt mit dem LTE-Modem. Verwende die Geräte-SSH-Zugangsdaten aus der UniFi Network App (Einstellungen → System → Erweitert → Geräte-Authentifizierung). Gib ein Passwort, einen privaten Schlüssel oder beides an.",
+        "data": {
+          "host": "Host",
+          "port": "SSH-Port",
+          "username": "Benutzername",
+          "password": "Passwort",
+          "private_key": "Privater Schlüssel (OpenSSH/PEM)"
+        },
+        "data_description": {
+          "host": "IP-Adresse des LTE-Geräts. Eine feste IP ist nicht nötig: Home Assistant folgt IP-Wechseln über die DHCP-Erkennung.",
+          "private_key": "Optional. Den ganzen Schlüssel einschließlich der BEGIN-/END-Zeilen einfügen. Schlüssel mit Passphrase werden nicht unterstützt."
+        }
+      },
+      "host_key": {
+        "title": "Host-Key bestätigen",
+        "description": "{host} hat diesen {key_type}-Host-Key vorgelegt:\n\n`{fingerprint}`\n\nZum Prüfen: `ssh-keygen -lf /etc/dropbear/dropbear_rsa_host_key` auf dem Gerät oder der Fingerabdruck, den dein SSH-Client anzeigt. Home Assistant verbindet sich nur, solange das Gerät genau diesen Schlüssel vorlegt."
+      },
+      "reauth_confirm": {
+        "title": "Erneut anmelden",
+        "description": "Die Verbindung zu {host} wurde abgelehnt. Meist hat sich der Host-Key nach einem Firmware-Update oder Zurücksetzen geändert.\n\nGespeicherter Schlüssel: `{old_fingerprint}`\nAktueller Schlüssel: `{new_fingerprint}`\n\nAbsenden, um dem aktuellen Schlüssel zu vertrauen. Passwort und Schlüssel leer lassen, um die gespeicherten Zugangsdaten zu behalten.",
+        "data": {
+          "password": "Passwort",
+          "private_key": "Privater Schlüssel (OpenSSH/PEM)"
+        }
+      },
+      "reconfigure": {
+        "title": "Neu konfigurieren",
+        "description": "Passwort und Schlüssel leer lassen, um die gespeicherten Zugangsdaten zu behalten.",
+        "data": {
+          "host": "Host",
+          "port": "SSH-Port",
+          "username": "Benutzername",
+          "password": "Passwort",
+          "private_key": "Privater Schlüssel (OpenSSH/PEM)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Keine SSH-Verbindung zum Gerät.",
+      "invalid_auth": "Anmeldung abgelehnt. Benutzername, Passwort und Schlüssel prüfen.",
+      "no_credentials": "Passwort oder privaten Schlüssel angeben.",
+      "host_key_changed": "Der Host-Key hat sich während der Einrichtung geändert. Bitte erneut versuchen.",
+      "modem_error": "Anmeldung klappt, aber das LTE-Modem antwortet nicht (AT-Port fehlt oder ist belegt). Ist das ein UniFi-LTE-Gerät?",
+      "unknown": "Unerwarteter Fehler, siehe Protokoll."
+    },
+    "abort": {
+      "already_configured": "Dieses Gerät ist bereits eingerichtet.",
+      "no_mac": "Das Gerät hat keine MAC-Adresse gemeldet. Ist das ein UniFi-LTE-Gerät?",
+      "reauth_successful": "Erneute Anmeldung erfolgreich.",
+      "reconfigure_successful": "Neukonfiguration erfolgreich.",
+      "unique_id_mismatch": "Das ist ein anderes Gerät."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Optionen",
+        "data": {
+          "scan_interval": "Abfrageintervall",
+          "delete_after_receive": "Empfangene SMS von der SIM löschen",
+          "default_recipients": "Standard-Empfänger",
+          "accept_host_key_change": "Geänderte Host-Keys automatisch übernehmen"
+        },
+        "data_description": {
+          "scan_interval": "Wie oft die SIM auf neue SMS geprüft wird (die Signalwerte werden dabei mit aktualisiert).",
+          "delete_after_receive": "Auf die SIM passen nur etwa 20 Nachrichten. Ohne Löschen werden neue SMS abgewiesen, sobald sie voll ist.",
+          "default_recipients": "Empfänger der Notify-Entität (internationales Format, z. B. +491701234567).",
+          "accept_host_key_change": "Manche Firmware-Versionen erzeugen bei jedem Neustart einen neuen SSH-Host-Key. Ist die Option an, vertraut Home Assistant dem neuen Schlüssel, arbeitet weiter und meldet das unter Reparaturen. Nur mit Schlüssel-Anmeldung einschalten: Mit Passwort würde ein Gerät, das sich im Netz als LTE-Gerät ausgibt, das Passwort erhalten."
+        }
+      }
+    },
+    "error": {
+      "invalid_number": "Ungültige Rufnummer."
+    }
+  },
+  "entity": {
+    "event": {
+      "incoming_sms": {
+        "name": "Eingehende SMS",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "received": "Empfangen"
+            }
+          },
+          "sender": {
+            "name": "Absender"
+          },
+          "text": {
+            "name": "Text"
+          },
+          "timestamp": {
+            "name": "Gesendet"
+          },
+          "parts": {
+            "name": "Teile"
+          },
+          "complete": {
+            "name": "Vollständig"
+          },
+          "receiver": {
+            "name": "Empfänger"
+          }
+        }
+      }
+    },
+    "notify": {
+      "sms": {
+        "name": "SMS"
+      }
+    },
+    "sensor": {
+      "rsrp": {
+        "name": "Signalstärke (RSRP)"
+      },
+      "rsrq": {
+        "name": "Signalqualität (RSRQ)"
+      },
+      "sinr": {
+        "name": "SINR"
+      },
+      "rssi": {
+        "name": "RSSI"
+      },
+      "operator": {
+        "name": "Netzbetreiber"
+      },
+      "network_type": {
+        "name": "Netztyp"
+      },
+      "band": {
+        "name": "Band"
+      },
+      "registration": {
+        "name": "Netzanmeldung",
+        "state": {
+          "not_registered": "Nicht angemeldet",
+          "home": "Heimatnetz",
+          "searching": "Suche",
+          "denied": "Abgelehnt",
+          "unknown": "Unbekannt",
+          "roaming": "Roaming"
+        }
+      },
+      "sms_on_sim": {
+        "name": "SMS auf der SIM"
+      },
+      "temperature": {
+        "name": "Modemtemperatur"
+      },
+      "cell_id": {
+        "name": "Zellen-ID"
+      },
+      "phone_number": {
+        "name": "Rufnummer"
+      }
+    }
+  },
+  "services": {
+    "send_sms": {
+      "name": "SMS senden",
+      "description": "Sendet eine SMS über das LTE-Modem. Lange Texte werden auf bis zu 10 Teile aufgeteilt; Texte mit Zeichen außerhalb des GSM-Alphabets (z. B. Emoji) gehen als Unicode mit weniger Zeichen pro Teil.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Gerät",
+          "description": "Nur nötig, wenn mehr als ein LTE-Gerät eingerichtet ist."
+        },
+        "recipients": {
+          "name": "Empfänger",
+          "description": "Rufnummern, am besten im internationalen Format (+49…)."
+        },
+        "message": {
+          "name": "Nachricht",
+          "description": "Der zu sendende Text."
+        }
+      }
+    }
+  },
+  "exceptions": {
+    "entry_not_found": {
+      "message": "Kein UniFi-LTE-SMS-Eintrag mit der ID {entry_id}."
+    },
+    "entry_required": {
+      "message": "Es ist mehr als ein UniFi-LTE-Gerät eingerichtet. Bitte eines auswählen."
+    },
+    "no_entry": {
+      "message": "Kein UniFi-LTE-Gerät eingerichtet und geladen."
+    },
+    "entry_not_loaded": {
+      "message": "{title} ist nicht geladen."
+    },
+    "invalid_number": {
+      "message": "Ungültige Rufnummer: {number}"
+    },
+    "empty_message": {
+      "message": "Die Nachricht ist leer."
+    },
+    "message_too_long": {
+      "message": "Die Nachricht bräuchte {parts} SMS-Teile, erlaubt sind 10."
+    },
+    "send_failed": {
+      "message": "Senden fehlgeschlagen: {errors}"
+    },
+    "no_default_recipients": {
+      "message": "Keine Standard-Empfänger hinterlegt. In den Optionen der Integration eintragen oder die Aktion ulte_sms.send_sms verwenden."
+    }
+  },
+  "issues": {
+    "host_key_accepted": {
+      "title": "Host-Key von {title} geändert",
+      "description": "Der SSH-Host-Key von {host} hat sich am {time} geändert und wurde automatisch übernommen (Option aktiv).\n\nAlt: `{old}`\nNeu: `{new}`\n\nNach einem Neustart oder Firmware-Update des Geräts ist das normal. Ist das Gerät nicht neu gestartet, das Netzwerk prüfen. Nach der Prüfung diese Meldung schließen."
+    }
+  }
+}

@@ -1,0 +1,20 @@
+send_sms:
+  fields:
+    config_entry_id:
+      required: false
+      selector:
+        config_entry:
+          integration: ulte_sms
+    recipients:
+      required: true
+      example: "+491701234567"
+      selector:
+        text:
+          type: tel
+          multiple: true
+    message:
+      required: true
+      example: "Hello from Home Assistant"
+      selector:
+        text:
+          multiline: true
