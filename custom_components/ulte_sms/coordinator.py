@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import timedelta
+import hashlib
 import logging
 from typing import Any
 
@@ -30,6 +31,7 @@ from .const import (
 )
 from .modem import (
     UlteAuthError,
+    UlteDeleteError,
     UlteError,
     UlteHostKeyError,
     UlteModem,
@@ -118,6 +120,7 @@ class UlteCoordinator(DataUpdateCoordinator[ModemStatus]):
             hass, STORAGE_VERSION, f"{DOMAIN}.{entry.entry_id}"
         )
         self._seen: set[str] = set()
+        self._delivered_parts: set[str] = set()
         self.waiting_parts = 0
         self.received_total = 0
         self.last_delete_error: str | None = None
@@ -125,6 +128,7 @@ class UlteCoordinator(DataUpdateCoordinator[ModemStatus]):
     async def _async_setup(self) -> None:
         stored = await self._store.async_load() or {}
         self._seen = set(stored.get("seen", []))
+        self._delivered_parts = set(stored.get("delivered_parts", []))
 
     async def _async_update_data(self) -> ModemStatus:
         try:
@@ -141,31 +145,56 @@ class UlteCoordinator(DataUpdateCoordinator[ModemStatus]):
         except UlteError as err:
             raise UpdateFailed(str(err)) from err
 
-        messages, waiting = assemble(parts, dt_util.utcnow(), INCOMPLETE_AFTER)
+        # A multipart message's key changes when deletion removes only some of
+        # its parts. Track delivered SIM contents individually, so the remnants
+        # cannot become a second (incomplete) message, including after restart.
+        # Only hashes are persisted; slots reused for a different PDU are new.
+        fingerprints = {
+            part.index: hashlib.sha256(f"{part.index}:{part.pdu}".encode()).hexdigest()
+            for part in parts
+        }
+        delivered_parts = self._delivered_parts.intersection(fingerprints.values())
+        messages, waiting = assemble(
+            [part for part in parts if fingerprints[part.index] not in delivered_parts],
+            dt_util.utcnow(), INCOMPLETE_AFTER,
+        )
         self.waiting_parts = len(waiting)
 
         for message in messages:
             if message.key not in self._seen:
                 self._fire(message)
+            # Legacy installations only stored message keys. Seed their part
+            # fingerprints too, without emitting the complete message again.
+            delivered_parts.update(fingerprints[index] for index in message.indices)
 
         on_sim = {m.key for m in messages}
         delete = self.config_entry.options.get(OPT_DELETE, DEFAULT_DELETE)
-        indices = sorted({i for m in messages for i in m.indices} | set(other)) if delete else []
+        indices = sorted(
+            {index for index, key in fingerprints.items() if key in delivered_parts}
+            | set(other)
+        ) if delete else []
         if indices:
+            deleted: set[int] = set()
             try:
                 await self.modem.async_delete(indices)
             except UlteError as err:
-                # Keys stay in _seen, so nothing fires twice; retried next poll.
+                if isinstance(err, UlteDeleteError):
+                    deleted = set(err.deleted_indices).intersection(indices)
                 self.last_delete_error = str(err)
                 _LOGGER.warning("Could not delete SMS %s from the SIM: %s", indices, err)
             else:
                 self.last_delete_error = None
-                if status.sms_used is not None:
-                    status.sms_used = max(0, status.sms_used - len(indices))
+                deleted = set(indices)
+            if status.sms_used is not None:
+                status.sms_used = max(0, status.sms_used - len(deleted))
 
-        if on_sim != self._seen:
+        if on_sim != self._seen or delivered_parts != self._delivered_parts:
             self._seen = on_sim
-            await self._store.async_save({"seen": sorted(self._seen)})
+            self._delivered_parts = delivered_parts
+            await self._store.async_save({
+                "seen": sorted(self._seen),
+                "delivered_parts": sorted(self._delivered_parts),
+            })
         return status
 
     def _fire(self, message: SmsMessage) -> None:

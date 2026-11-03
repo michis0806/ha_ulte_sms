@@ -128,6 +128,74 @@ async def test_reauth_new_host_key(hass: HomeAssistant) -> None:
     assert entry.data[CONF_PASSWORD] == "secret"
 
 
+async def test_reauth_key_change_requires_confirmation(hass: HomeAssistant) -> None:
+    old = host_key()
+    changed = host_key()
+    entry = MockConfigEntry(domain=DOMAIN, unique_id=MAC, data={**INPUT, CONF_HOST_KEY: old})
+    entry.add_to_hass(hass)
+    p1, p2 = _patch(fetch=[KEY, changed, changed])
+    with p1, p2 as test_mock:
+        result = await entry.start_reauth_flow(hass)
+        first_fingerprint = result["description_placeholders"]["new_fingerprint"]
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+        assert result["type"] is FlowResultType.FORM
+        assert result["errors"] == {"base": "host_key_changed"}
+        assert result["description_placeholders"]["new_fingerprint"] != first_fingerprint
+        test_mock.assert_not_awaited()
+
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reauth_successful"
+    assert entry.data[CONF_HOST_KEY] == changed
+
+
+async def test_reauth_recovers_after_initial_key_fetch_failure(hass: HomeAssistant) -> None:
+    entry = MockConfigEntry(domain=DOMAIN, unique_id=MAC, data={**INPUT, CONF_HOST_KEY: host_key()})
+    entry.add_to_hass(hass)
+    p1, p2 = _patch(fetch=[UlteConnectionError("offline"), KEY, KEY])
+    with p1, p2 as test_mock:
+        result = await entry.start_reauth_flow(hass)
+        assert result["errors"] == {"base": "cannot_connect"}
+        assert result["description_placeholders"]["new_fingerprint"] == "-"
+
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+        assert result["type"] is FlowResultType.FORM
+        assert result["errors"] == {"base": "host_key_changed"}
+        assert result["description_placeholders"]["new_fingerprint"].startswith("SHA256:")
+        test_mock.assert_not_awaited()
+
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reauth_successful"
+    assert entry.data[CONF_HOST_KEY] == KEY
+
+
+async def test_reauth_fetch_failure_invalidates_previously_displayed_key(
+    hass: HomeAssistant,
+) -> None:
+    entry = MockConfigEntry(domain=DOMAIN, unique_id=MAC, data={**INPUT, CONF_HOST_KEY: host_key()})
+    entry.add_to_hass(hass)
+    p1, p2 = _patch(fetch=[KEY, UlteConnectionError("offline"), KEY, KEY])
+    with p1, p2 as test_mock:
+        result = await entry.start_reauth_flow(hass)
+        assert result["description_placeholders"]["new_fingerprint"].startswith("SHA256:")
+
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+        assert result["errors"] == {"base": "cannot_connect"}
+        assert result["description_placeholders"]["new_fingerprint"] == "-"
+
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+        assert result["type"] is FlowResultType.FORM
+        assert result["errors"] == {"base": "host_key_changed"}
+        assert result["description_placeholders"]["new_fingerprint"].startswith("SHA256:")
+        test_mock.assert_not_awaited()
+
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reauth_successful"
+    assert entry.data[CONF_HOST_KEY] == KEY
+
+
 async def test_reconfigure_same_key(hass: HomeAssistant) -> None:
     entry = MockConfigEntry(domain=DOMAIN, unique_id=MAC, data={**INPUT, CONF_HOST_KEY: KEY})
     entry.add_to_hass(hass)

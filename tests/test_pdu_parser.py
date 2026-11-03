@@ -1,4 +1,5 @@
 """Codec and parser tests (no Home Assistant)."""
+from dataclasses import replace
 from datetime import timedelta
 
 import pytest
@@ -89,6 +90,44 @@ def test_malformed():
         decode_deliver(0, "0004")
 
 
+@pytest.mark.parametrize(
+    ("udl", "payload"),
+    [
+        (4, "03000307"),  # reported crash: concat IE exceeds its UDH
+        (0, ""),  # UDHI without a header
+        (6, "05000307"),  # fewer octets than UDL declares
+        (3, "050003"),  # UDHL exceeds the declared user data
+        (2, "0100"),  # IE missing its length byte
+        (5, "0400020702"),  # 8-bit concat IE with an invalid length
+        (6, "050804000702"),  # truncated 16-bit concat IE
+        (5, "0300030702"),  # IE extends into text outside the UDH
+    ],
+)
+def test_malformed_udh_raises_pdu_error(udl, payload):
+    pdu = "00440281210008" + SCTS + f"{udl:02X}" + payload
+    with pytest.raises(PduError):
+        decode_deliver(7, pdu)
+
+
+def test_gsm7_udh_must_fit_declared_septets():
+    pdu = "00440281210000" + SCTS + "06050003070201"
+    with pytest.raises(PduError):
+        decode_deliver(7, pdu)
+
+
+def test_truncated_gsm7_user_data():
+    pdu = deliver_pdus("+491701234567", "hello")[0]
+    with pytest.raises(PduError):
+        decode_deliver(7, pdu[:-2])
+
+
+def test_unknown_udh_information_element_is_skipped():
+    pdu = "00440281210008" + SCTS + "06037001FF0041"
+    part = decode_deliver(7, pdu)
+    assert part.text == "A"
+    assert part.ref is None
+
+
 def test_incomplete_multipart_waits_then_delivers():
     parts = _decode_all(deliver_pdus("+491701234567", "y" * 400))
     assert len(parts) == 3
@@ -100,6 +139,69 @@ def test_incomplete_multipart_waits_then_delivers():
     assert not waiting
     assert messages[0].complete is False
     assert messages[0].indices == [0, 2]
+
+
+def test_reused_reference_preserves_both_messages_and_all_indices():
+    first = _decode_all(deliver_pdus("+491701234567", "a" * 161))
+    second = _decode_all(deliver_pdus("+491701234567", "b" * 161, scts="62110232605540"))
+    # SIM slots and input order are unrelated to sequence or message order.
+    parts = [replace(first[1], index=1), replace(second[0], index=3),
+             replace(first[0], index=20), replace(second[1], index=2)]
+    messages, waiting = assemble(parts, second[0].timestamp, timedelta(hours=1))
+    assert not waiting
+    assert {m.text: m.indices for m in messages} == {"a" * 161: [1, 20], "b" * 161: [2, 3]}
+    assert all(m.complete for m in messages)
+
+
+def test_multipart_can_have_different_service_centre_timestamps():
+    first = _decode_all(deliver_pdus("+491701234567", "a" * 161))
+    later = _decode_all(deliver_pdus("+491701234567", "a" * 161, scts="62110232106540"))
+    messages, waiting = assemble([first[0], later[1]], later[1].timestamp, timedelta(hours=1))
+    assert not waiting
+    assert len(messages) == 1
+    assert messages[0].complete and messages[0].text == "a" * 161
+
+
+def test_exact_duplicate_parts_keep_every_sim_index():
+    parts = _decode_all(deliver_pdus("+491701234567", "a" * 161))
+    duplicate = replace(parts[0], index=8)
+    messages, waiting = assemble([duplicate, *parts], parts[0].timestamp, timedelta(hours=1))
+    assert not waiting
+    assert len(messages) == 1
+    assert messages[0].text == "a" * 161
+    assert messages[0].indices == [0, 1, 8]
+    assert messages[0].complete
+
+
+def test_ambiguous_reference_collision_preserves_fragments_until_timeout():
+    first = _decode_all(deliver_pdus("+491701234567", "a" * 161))
+    second = _decode_all(deliver_pdus("+491701234567", "b" * 161))
+    parts = [first[0], first[1], replace(second[0], index=4), replace(first[0], index=8)]
+    now = first[0].timestamp
+    messages, waiting = assemble(parts, now, timedelta(hours=1))
+    assert not messages
+    assert sorted(p.index for p in waiting) == [0, 1, 4, 8]
+    messages, waiting = assemble(waiting, now + timedelta(hours=1), timedelta(hours=1))
+    assert not waiting
+    assert {m.text: m.indices for m in messages} == {
+        first[0].text: [0, 8], first[1].text: [1], second[0].text: [4],
+    }
+    assert len({m.key for m in messages}) == 3
+    assert all(not m.complete for m in messages)
+
+
+def test_separate_incomplete_occurrences_do_not_fill_each_others_gaps():
+    first = _decode_all(deliver_pdus("+491701234567", "a" * 161))
+    later = _decode_all(deliver_pdus("+491701234567", "b" * 161, scts="62110232605540"))
+    parts = [first[0], replace(first[0], index=8), replace(later[1], index=4)]
+    now = later[1].timestamp
+    messages, waiting = assemble(parts, now, timedelta(hours=1))
+    assert not messages
+    assert sorted(p.index for p in waiting) == [0, 4, 8]
+    messages, waiting = assemble(waiting, now + timedelta(hours=1), timedelta(hours=1))
+    assert not waiting
+    assert {m.text: m.indices for m in messages} == {first[0].text: [0, 8], later[1].text: [4]}
+    assert all(not m.complete for m in messages)
 
 
 def test_message_keys_differ():

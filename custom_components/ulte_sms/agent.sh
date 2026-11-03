@@ -13,7 +13,7 @@
 #
 # Output: every AT command starts a section "### <command>", followed by the
 # modem's response lines without CR and empty lines.
-AGENT_VERSION=2
+AGENT_VERSION=3
 P=/dev/ttyUSB2
 MODE=$1
 [ $# -gt 0 ] && shift
@@ -177,10 +177,18 @@ send)
     ;;
 delete)
     quiet ATE0
-    for i in "$@"; do
-        case "$i" in ''|*[!0-9]*) continue;; esac
-        at "AT+CMGD=$i"
+    rc=0
+    for idx in "$@"; do
+        case "$idx" in
+            ''|*[!0-9]*) echo "ERROR: invalid SIM index"; rc=1; continue;;
+        esac
+        at "AT+CMGD=$idx"
+        if ! tr -d '\r' < "$OUT" | grep -q '^OK$' ||
+                tr -d '\r' < "$OUT" | grep -q -E '^(ERROR|\+CM[ES] ERROR.*)$'; then
+            rc=1
+        fi
     done
+    exit $rc
     ;;
 *)
     echo "ERROR: unknown mode $MODE"

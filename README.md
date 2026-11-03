@@ -110,6 +110,10 @@ references (`response_variable`). If several recipients are given and one
 fails, the others are still sent and the action raises an error afterwards.
 `config_entry_id` is only needed with more than one device.
 
+If the SSH connection fails during sending, the result may be unknown: the
+modem may already have sent the SMS. The integration reports an error and does
+not automatically resend it. Retrying manually may send a duplicate.
+
 ## Event `ulte_sms_received`
 
 Fired on the event bus for every new SMS (in addition to the event entity):
@@ -129,6 +133,18 @@ Data: `config_entry_id`, `sender`, `text`, `timestamp`, `parts`, `complete`,
 `receiver`. Multipart SMS are joined; if a part is still missing after one
 hour, the message is delivered with `complete: false`.
 
+Concatenation references can be reused. Reassembly therefore only combines
+parts whose SMSC timestamps span at most 60 seconds. Conflicting sequence
+numbers are kept as separate fragments. Delayed or ambiguous fragments are
+delivered with `complete: false` after one hour rather than silently discarded.
+The timestamp window is a heuristic; the SMS protocol provides no globally
+unique message identifier to distinguish every possible reference collision.
+
+Deletion errors appear in the SMS sensor's `last_delete_error` attribute.
+Only confirmed deletions reduce its count; remaining delivered parts are
+retried on the next poll without firing the received event again, including
+after a restart.
+
 ## Options
 
 | Option | Default | |
@@ -143,7 +159,8 @@ hour, the message is delivered with `complete: false`.
 - *Logged in, but the LTE modem did not respond*: not a supported modem, or
   the AT port is busy (e.g. during a modem firmware upgrade).
 - Debug log: `logger: logs: custom_components.ulte_sms: debug`.
-- Diagnostics download redacts password, key, IMEI and phone number.
+- Diagnostics download redacts password, key, IMEI, own phone number and
+  default recipient numbers.
 
 ---
 
@@ -178,8 +195,16 @@ unter Reparaturen – nur mit Schlüssel-Anmeldung verwenden.
 
 **Senden:** Aktion `ulte_sms.send_sms` (Empfänger, Nachricht) oder die
 Notify-Entität *SMS* mit den Standard-Empfängern aus den Optionen.
+Bei einem SSH-Abbruch während des Sendens wird ein unbekanntes Ergebnis
+gemeldet und nicht automatisch erneut gesendet: Die SMS könnte bereits
+versendet worden sein.
 **Empfangen:** Event-Entität *Eingehende SMS* oder Bus-Event
 `ulte_sms_received` mit `sender`, `text`, `timestamp`, `parts`, `complete`.
+Mehrteilige SMS werden innerhalb eines SMSC-Zeitfensters von 60 Sekunden
+zusammengefügt. Mehrdeutige oder stark verzögerte Teile werden nach einer
+Stunde unvollständig (`complete: false`) ausgeliefert. Löschfehler sind am
+SMS-Sensor sichtbar; bereits gemeldete Teile lösen auch nach einem Neustart
+kein zweites Event aus, wenn sie noch auf der SIM liegen.
 
 Getestet mit U-LTE-Pro-EU (Sierra WP7607, Firmware 7.0.110). Kein Produkt
 von Ubiquiti.

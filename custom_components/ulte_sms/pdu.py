@@ -25,6 +25,10 @@ GSM_EXT_REV = {c: i for i, c in GSM_EXT.items()}
 GSM7_SINGLE, GSM7_MULTI = 160, 153
 UCS2_SINGLE, UCS2_MULTI = 140, 134  # bytes
 MAX_PARTS = 10
+# SCTS is the only occurrence hint in SMS-DELIVER beyond a reusable reference.
+# A short bounded window favors incomplete delivery over mixing delayed/reused
+# references. It is a heuristic, not a protocol-level message identifier.
+MULTIPART_SCTS_WINDOW = timedelta(seconds=60)
 
 
 class PduError(ValueError):
@@ -188,14 +192,33 @@ def decode_deliver(index: int, pdu_hex: str) -> SmsPart | None:
     else:  # 0xC/0xD message waiting groups use GSM7
         alphabet = 0
 
+    # UDL counts septets for GSM7 and octets for the other alphabets. Slice to
+    # the declared payload so trailing bytes cannot satisfy a truncated UDH.
+    ud_bytes = (udl * 7 + 7) // 8 if alphabet not in (1, 2) else udl
+    if len(ud) < ud_bytes:
+        raise PduError(f"Truncated user data at index {index}")
+    ud = ud[:ud_bytes]
+
     ref = total = seq = None
     udh_len = 0
-    if udhi and ud:
+    if udhi:
+        if not ud:
+            raise PduError(f"Missing UDH at index {index}")
         udh_len = ud[0] + 1
+        if udh_len > len(ud) or (
+            alphabet not in (1, 2) and (udh_len * 8 + 6) // 7 > udl
+        ):
+            raise PduError(f"Truncated UDH at index {index}")
         i = 1
-        while i + 1 < udh_len:
+        while i < udh_len:
+            if i + 2 > udh_len:
+                raise PduError(f"Truncated UDH information element at index {index}")
             iei, ielen = ud[i], ud[i + 1]
+            if i + 2 + ielen > udh_len:
+                raise PduError(f"Truncated UDH information element at index {index}")
             data = ud[i + 2:i + 2 + ielen]
+            if (iei == 0x00 and ielen != 3) or (iei == 0x08 and ielen != 4):
+                raise PduError(f"Invalid concatenation UDH at index {index}")
             if iei == 0x00 and ielen == 3:
                 ref, total, seq = data[0], data[1], data[2]
             elif iei == 0x08 and ielen == 4:
@@ -242,25 +265,44 @@ def assemble(
             groups.setdefault((part.sender, part.ref, part.total or 0), []).append(part)
 
     for (sender, _ref, total), group in groups.items():
-        # Duplicates of the same sequence number: keep the first one.
-        by_seq: dict[int, SmsPart] = {}
-        for part in sorted(group, key=lambda p: p.index):
-            by_seq.setdefault(part.seq or 0, part)
-        ordered = [by_seq[s] for s in sorted(by_seq)]
-        complete = set(by_seq) == set(range(1, total + 1))
-        oldest = min(p.timestamp for p in ordered)
-        if not complete and now - oldest < incomplete_after:
-            waiting.extend(ordered)
-            continue
-        messages.append(SmsMessage(
-            sender=sender,
-            timestamp=ordered[0].timestamp,
-            text="".join(p.text for p in ordered),
-            indices=sorted(p.index for p in group),
-            parts=total,
-            complete=complete,
-            key=_key(ordered),
-        ))
+        # SIM slots are reused and need not be in arrival order. Bound each
+        # occurrence by its oldest SCTS rather than chaining adjacent times.
+        windows: list[list[SmsPart]] = []
+        for part in sorted(group, key=lambda p: (p.timestamp, p.index)):
+            if not windows or part.timestamp - windows[-1][0].timestamp > MULTIPART_SCTS_WINDOW:
+                windows.append([])
+            windows[-1].append(part)
+
+        for window in windows:
+            # Only byte-identical PDUs are duplicates. Keep every SIM index,
+            # including while waiting, so no unconsumed fragment is lost.
+            duplicates: dict[str, list[SmsPart]] = {}
+            for part in window:
+                duplicates.setdefault(part.pdu, []).append(part)
+            unique = list(duplicates.values())
+            sequences = [copies[0].seq for copies in unique]
+            ambiguous = len(set(sequences)) != len(sequences)
+            # Conflicting sequence slots cannot be assigned safely to their
+            # occurrences. Deliver each distinct fragment incomplete instead.
+            candidates = [[copies] for copies in unique] if ambiguous else [unique]
+            for candidate in candidates:
+                ordered_copies = sorted(candidate, key=lambda copies: copies[0].seq or 0)
+                ordered = [copies[0] for copies in ordered_copies]
+                consumed = [part for copies in ordered_copies for part in copies]
+                complete = not ambiguous and {p.seq for p in ordered} == set(range(1, total + 1))
+                oldest = min(p.timestamp for p in ordered)
+                if not complete and now - oldest < incomplete_after:
+                    waiting.extend(consumed)
+                    continue
+                messages.append(SmsMessage(
+                    sender=sender,
+                    timestamp=ordered[0].timestamp,
+                    text="".join(p.text for p in ordered),
+                    indices=sorted(p.index for p in consumed),
+                    parts=total,
+                    complete=complete,
+                    key=_key(ordered),
+                ))
 
     messages.sort(key=lambda m: m.indices[0])
     return messages, waiting

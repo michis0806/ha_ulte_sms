@@ -54,6 +54,14 @@ class UlteModemError(UlteError):
     """The modem returned an error (AT port missing, +CMS ERROR, ...)."""
 
 
+class UlteDeleteError(UlteModemError):
+    """Some SIM deletions failed; only these indices were confirmed deleted."""
+
+    def __init__(self, message: str, deleted_indices: list[int]) -> None:
+        super().__init__(message)
+        self.deleted_indices = deleted_indices
+
+
 def fingerprint(public_key: str) -> str:
     return asyncssh.import_public_key(public_key).get_fingerprint("sha256")
 
@@ -162,8 +170,9 @@ class UlteModem:
             self._conn = None
 
     async def _run(self, mode: str, *args: str, timeout: float = COMMAND_TIMEOUT) -> str:
-        """Run the agent; reconnects once if the connection went stale."""
+        """Run the agent; retry only read operations after a lost connection."""
         command = " ".join(["sh", "-s", "--", mode, *args])
+        can_retry = mode in {"info", "status", "poll"}
         async with self._lock:
             for attempt in (1, 2):
                 if self._conn is None:
@@ -174,9 +183,15 @@ class UlteModem:
                     )
                 except asyncssh.TimeoutError as err:
                     await self.async_close()
-                    raise UlteModemError(f"Agent '{mode}' timed out") from err
+                    detail = "" if can_retry else "; outcome unknown, command was not retried"
+                    raise UlteModemError(f"Agent '{mode}' timed out{detail}") from err
                 except (asyncssh.Error, OSError) as err:
                     await self.async_close()
+                    if not can_retry:
+                        raise UlteConnectionError(
+                            f"Agent '{mode}' connection lost; outcome unknown, "
+                            "command was not retried"
+                        ) from err
                     if attempt == 2:
                         raise UlteConnectionError(f"{self.host}: {err}") from err
                     _LOGGER.debug("SSH session failed, reconnecting: %s", err)
@@ -185,7 +200,9 @@ class UlteModem:
         output = result.stdout if isinstance(result.stdout, str) else ""
         if result.exit_status not in (0, None):
             errors = agent_errors(split_sections(output))
-            if result.exit_status == 3 or (mode != "send" and errors):
+            # Send/delete parse their individual AT responses, including partial
+            # success. Other modes must not silently accept a failed agent.
+            if result.exit_status == 3 or mode not in {"send", "delete"}:
                 raise UlteModemError(
                     errors[0][6:].strip() if errors
                     else f"Agent '{mode}' failed (exit {result.exit_status}): {result.stderr}"
@@ -228,7 +245,27 @@ class UlteModem:
     async def async_delete(self, indices: list[int]) -> None:
         if not indices:
             return
-        await self._run("delete", *(str(int(i)) for i in indices))
+        indices = sorted({int(i) for i in indices})
+        if any(i < 0 for i in indices):
+            raise UlteModemError("SIM indices must be non-negative")
+        output = await self._run("delete", *(str(i) for i in indices))
+        sections = split_sections(output)
+        deleted: list[int] = []
+        failures: list[str] = []
+        for index in indices:
+            command = f"AT+CMGD={index}"
+            responses = [lines for cmd, lines in sections if cmd == command]
+            if len(responses) != 1:
+                failures.append(f"{command}: missing or ambiguous confirmation")
+                continue
+            lines = responses[0]
+            error = next((line for line in lines if "ERROR" in line), None)
+            if error or "OK" not in lines:
+                failures.append(f"{command}: {error or 'no OK from modem'}")
+            else:
+                deleted.append(index)
+        if failures:
+            raise UlteDeleteError("; ".join(failures), deleted)
 
     async def async_persist_host_key(self) -> dict[str, str]:
         """Store dropbear's host key in the device's flash config.

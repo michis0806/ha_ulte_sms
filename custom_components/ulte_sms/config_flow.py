@@ -121,6 +121,7 @@ class UlteSmsConfigFlow(ConfigFlow, domain=DOMAIN):
     def __init__(self) -> None:
         self._data: dict[str, Any] = {}
         self._discovered_host: str | None = None
+        self._reauth_displayed_key: str | None = None
 
     @staticmethod
     @callback
@@ -237,12 +238,22 @@ class UlteSmsConfigFlow(ConfigFlow, domain=DOMAIN):
             new_key = await fetch_host_key(entry.data[CONF_HOST], entry.data.get(CONF_PORT, DEFAULT_PORT))
         except UlteConnectionError:
             new_key = None
+            self._reauth_displayed_key = None
             errors["base"] = "cannot_connect"
         else:
             placeholders["new_fingerprint"] = fingerprint(new_key)
 
-        if user_input is not None and new_key is not None:
-            data = {**entry.data, CONF_HOST_KEY: new_key}
+        # The key a user approved must be the key used for authentication.
+        # If it changed since the form was shown (or the first fetch failed),
+        # show the newly observed key and require a fresh submission.
+        key_matches_displayed = new_key is not None and new_key == self._reauth_displayed_key
+        if new_key is not None and not key_matches_displayed:
+            self._reauth_displayed_key = new_key
+            if user_input is not None:
+                errors["base"] = "host_key_changed"
+
+        if user_input is not None and key_matches_displayed:
+            data = {**entry.data, CONF_HOST_KEY: self._reauth_displayed_key}
             new = _clean(user_input)
             if new.get(CONF_PASSWORD) or new.get(CONF_PRIVATE_KEY):
                 data.pop(CONF_PASSWORD, None)

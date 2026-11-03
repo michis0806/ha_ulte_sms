@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.2.2 – 2026-11-03
+
+- Re-authentication only uses the SSH host key whose fingerprint was shown
+  and confirmed. A further key change requires another confirmation.
+- Preserve separate multipart SMS when concatenation references are reused;
+  never discard conflicting fragments or delete unconsumed content. Reassembly
+  uses a conservative 60-second SMSC timestamp window. Ambiguous or delayed
+  parts are delivered incomplete after the existing one-hour timeout.
+- Reject malformed user-data headers without blocking subsequent SMS polling.
+- Do not replay send, delete or host-key persistence commands after an SSH
+  connection failure. Unknown outcomes are reported explicitly.
+- Check every SIM deletion for a modem confirmation and account for partial
+  success. Persist delivered-part fingerprints so remnants are not delivered
+  again after a partial deletion, including across Home Assistant restarts.
+- Redact default recipient phone numbers from diagnostic exports.
+- Agent version 3; regression tests cover these fixes, including partial
+  deletion recovery across Home Assistant restarts.
+
 ## 0.2.1 – 2026-11-03
 
 - Brand icon for HACS and the integration page.

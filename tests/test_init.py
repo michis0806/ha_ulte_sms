@@ -26,9 +26,11 @@ from custom_components.ulte_sms.const import (
     OPT_DELETE,
     OPT_RECIPIENTS,
 )
-from custom_components.ulte_sms.modem import UlteHostKeyError, UlteModemError
+from custom_components.ulte_sms.modem import (
+    UlteDeleteError, UlteError, UlteHostKeyError, UlteModemError,
+)
 from custom_components.ulte_sms.parser import parse_info, parse_status
-from custom_components.ulte_sms.pdu import decode_deliver
+from custom_components.ulte_sms.pdu import assemble, decode_deliver
 
 from .helpers import INFO_OUTPUT, STATUS_OUTPUT, deliver_pdus, host_key
 
@@ -154,6 +156,111 @@ async def test_receive_without_delete(hass: HomeAssistant, modem: FakeModem) -> 
     await _poll(hass)
     assert len(events) == 1
     assert modem.deleted == []
+
+
+async def test_partial_delete_survives_reload_and_retries(
+    hass: HomeAssistant, modem: FakeModem,
+) -> None:
+    """Delivered multipart remnants are deletion work, even before their expiry."""
+    events = async_capture_events(hass, EVENT_RECEIVED)
+    entry = await _setup(hass)
+    pdus = deliver_pdus("+491701234567", "x" * 300)
+    modem.sim = dict(enumerate(pdus))
+    original_poll = modem.async_poll
+
+    async def poll():
+        status, parts, other = await original_poll()
+        status.sms_used = len(modem.sim)
+        return status, parts, other
+
+    async def delete(indices):
+        modem.deleted.append(list(indices))
+        if len(modem.deleted) == 1:
+            modem.sim.pop(0)
+            raise UlteDeleteError("+CMS ERROR: 500", [0])
+        if len(modem.deleted) == 2:
+            raise UlteError("Connection lost; deletion result unknown")
+        for index in indices:
+            modem.sim.pop(index, None)
+
+    sent = decode_deliver(0, pdus[0]).timestamp
+    with (
+        patch.object(modem, "async_poll", side_effect=poll),
+        patch.object(modem, "async_delete", side_effect=delete),
+        patch("custom_components.ulte_sms.coordinator.dt_util.utcnow",
+              return_value=sent + timedelta(minutes=1)),
+    ):
+        await _poll(hass)
+        coordinator = entry.runtime_data.coordinator
+        assert len(events) == 1 and events[0].data["complete"] is True
+        assert coordinator.data.sms_used == 1
+        assert coordinator.last_delete_error == "+CMS ERROR: 500"
+        stored = await coordinator._store.async_load()
+        assert len(stored["delivered_parts"]) == 2
+        assert all(len(key) == 64 for key in stored["delivered_parts"])
+        assert set(stored) == {"seen", "delivered_parts"}
+
+        assert await hass.config_entries.async_reload(entry.entry_id)
+        await hass.async_block_till_done()
+        coordinator = entry.runtime_data.coordinator
+        assert len(events) == 1
+        assert modem.deleted == [[0, 1], [1]]
+        assert coordinator.waiting_parts == 0
+        assert coordinator.data.sms_used == 1
+        assert coordinator.last_delete_error == "Connection lost; deletion result unknown"
+        assert len(coordinator._delivered_parts) == 1
+
+        await _poll(hass)
+        assert modem.deleted[-1] == [1]
+        assert coordinator.data.sms_used == 0
+        assert coordinator.last_delete_error is None
+        assert len(events) == 1
+        # Keep just-deleted fingerprints until the next SIM snapshot confirms
+        # their absence, then bound storage to the remaining SIM contents.
+        assert len(coordinator._delivered_parts) == 1
+        await _poll(hass)
+        assert coordinator._delivered_parts == set()
+        assert (await coordinator._store.async_load())["delivered_parts"] == []
+
+
+async def test_delivered_part_index_reused_for_new_pdu(
+    hass: HomeAssistant, modem: FakeModem,
+) -> None:
+    events = async_capture_events(hass, EVENT_RECEIVED)
+    entry = await _setup(hass, {OPT_DELETE: False})
+    modem.sim = {0: deliver_pdus("+491701234567", "First message")[0]}
+    await _poll(hass)
+    first_fingerprints = entry.runtime_data.coordinator._delivered_parts.copy()
+    modem.sim[0] = deliver_pdus("+491701234567", "Second message")[0]
+    await _poll(hass)
+    assert [event.data["text"] for event in events] == ["First message", "Second message"]
+    assert len(entry.runtime_data.coordinator._delivered_parts) == 1
+    assert not first_fingerprints.intersection(entry.runtime_data.coordinator._delivered_parts)
+
+
+async def test_legacy_seen_keys_seed_delivered_parts(
+    hass: HomeAssistant, modem: FakeModem,
+) -> None:
+    """An upgrade keeps already-delivered complete messages quiet."""
+    events = async_capture_events(hass, EVENT_RECEIVED)
+    entry = await _setup(hass, {OPT_DELETE: False})
+    pdus = deliver_pdus("+491701234567", "x" * 300)
+    modem.sim = dict(enumerate(pdus))
+    parts = [decode_deliver(index, pdu) for index, pdu in modem.sim.items()]
+    messages, _ = assemble(parts, dt_util.utcnow(), timedelta(0))
+    await entry.runtime_data.coordinator._store.async_save({"seen": [messages[0].key]})
+
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert events == []
+    assert len(entry.runtime_data.coordinator._delivered_parts) == 2
+    modem.sim.pop(0)
+    sent = parts[0].timestamp
+    with patch("custom_components.ulte_sms.coordinator.dt_util.utcnow",
+               return_value=sent + timedelta(days=1)):
+        await _poll(hass)
+    assert events == []
+    assert len(entry.runtime_data.coordinator._delivered_parts) == 1
 
 
 async def test_incomplete_multipart_waits(hass: HomeAssistant, modem: FakeModem) -> None:
